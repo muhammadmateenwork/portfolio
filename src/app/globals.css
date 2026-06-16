@@ -123,6 +123,19 @@
 
 html {
   scroll-behavior: smooth;
+  /* Prevent horizontal overflow from Framer Motion x-offset entrance
+     animations expanding the mobile layout viewport (which causes the
+     page to load zoomed-out on phones). */
+  overflow-x: hidden;
+}
+
+body {
+  overflow-x: hidden;
+}
+
+/* Offset anchor targets so headings aren't hidden behind the fixed navbar */
+section[id] {
+  scroll-margin-top: 80px;
 }
 
 /* Custom scrollbar */

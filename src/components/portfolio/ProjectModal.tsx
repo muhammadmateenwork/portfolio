@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Dialog,
@@ -35,6 +35,8 @@ interface ProjectModalProps {
 export default function ProjectModal({ project, open, onClose }: ProjectModalProps) {
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   const [galleryLoaded, setGalleryLoaded] = useState<Set<number>>(new Set());
+  const touchStartX = useRef<number | null>(null);
+  const touchEndX = useRef<number | null>(null);
 
   const allImages = project
     ? [project.thumbnail, ...(project.gallery || [])].filter(Boolean)
@@ -48,29 +50,84 @@ export default function ProjectModal({ project, open, onClose }: ProjectModalPro
     setLightboxIndex(index);
   };
 
-  const closeLightbox = () => {
+  const closeLightbox = useCallback(() => {
     setLightboxIndex(null);
-  };
+  }, []);
 
-  const goPrev = () => {
-    if (lightboxIndex !== null && lightboxIndex > 0) {
-      setLightboxIndex(lightboxIndex - 1);
-    }
-  };
+  const goPrev = useCallback(() => {
+    setLightboxIndex((prev) => (prev !== null && prev > 0 ? prev - 1 : prev));
+  }, []);
 
-  const goNext = () => {
-    if (lightboxIndex !== null && lightboxIndex < allImages.length - 1) {
-      setLightboxIndex(lightboxIndex + 1);
+  const goNext = useCallback(() => {
+    setLightboxIndex((prev) =>
+      prev !== null && prev < allImages.length - 1 ? prev + 1 : prev
+    );
+  }, [allImages.length]);
+
+  // Keyboard navigation for the lightbox
+  useEffect(() => {
+    if (lightboxIndex === null) return;
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        closeLightbox();
+      } else if (e.key === "ArrowLeft") {
+        e.preventDefault();
+        goPrev();
+      } else if (e.key === "ArrowRight") {
+        e.preventDefault();
+        goNext();
+      }
+    };
+    window.addEventListener("keydown", handleKey);
+    // Lock body scroll while lightbox is open
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      window.removeEventListener("keydown", handleKey);
+      document.body.style.overflow = prevOverflow;
+    };
+  }, [lightboxIndex, closeLightbox, goPrev, goNext]);
+
+  // Touch swipe navigation for mobile
+  const handleTouchStart = useCallback((e: React.TouchEvent) => {
+    touchStartX.current = e.touches[0].clientX;
+    touchEndX.current = null;
+  }, []);
+
+  const handleTouchMove = useCallback((e: React.TouchEvent) => {
+    touchEndX.current = e.touches[0].clientX;
+  }, []);
+
+  const handleTouchEnd = useCallback(() => {
+    if (touchStartX.current === null || touchEndX.current === null) return;
+    const diff = touchStartX.current - touchEndX.current;
+    // Require a swipe of at least 50px to trigger navigation
+    if (Math.abs(diff) > 50) {
+      if (diff > 0) {
+        goNext();
+      } else {
+        goPrev();
+      }
     }
-  };
+    touchStartX.current = null;
+    touchEndX.current = null;
+  }, [goNext, goPrev]);
 
   if (!project) return null;
 
+  const hasMultiple = allImages.length > 1;
+
   return (
     <>
-      {/* Project Detail Modal */}
+      {/* Project Detail Modal — showCloseButton={false} because we render a
+          custom close button on the header image (prevents two X buttons) */}
       <Dialog open={open && lightboxIndex === null} onOpenChange={onClose}>
-        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto bg-zinc-950 border-zinc-800 p-0">
+        <DialogContent
+          showCloseButton={false}
+          aria-describedby={undefined}
+          className="max-w-3xl max-h-[90vh] overflow-y-auto bg-zinc-950 border-zinc-800 p-0"
+        >
           <DialogTitle className="sr-only">{project.title}</DialogTitle>
 
           {/* Header Image — shown completely with object-contain */}
@@ -92,9 +149,11 @@ export default function ProjectModal({ project, open, onClose }: ProjectModalPro
                 <span className="text-6xl font-bold text-emerald-500/20">{project.title.charAt(0)}</span>
               </div>
             )}
+            {/* Single close button (replaces the old double-X) */}
             <button
               onClick={onClose}
-              className="absolute top-4 right-4 p-2 bg-black/50 backdrop-blur-sm rounded-lg text-white hover:bg-black/70 transition-colors"
+              aria-label="Close"
+              className="absolute top-3 right-3 p-2 bg-black/60 backdrop-blur-sm rounded-lg text-white hover:bg-black/80 transition-colors"
             >
               <X className="h-5 w-5" />
             </button>
@@ -148,7 +207,9 @@ export default function ProjectModal({ project, open, onClose }: ProjectModalPro
               </div>
             )}
 
-            {/* Gallery — Grid with lightbox support for 30+ images */}
+            {/* Gallery — no nested scroll; the modal itself scrolls.
+                Tapping any screenshot opens the full-screen lightbox where
+                users can swipe (mobile) or use arrows (desktop) to navigate. */}
             {project.gallery && project.gallery.length > 0 && (
               <div>
                 <div className="flex items-center justify-between mb-3">
@@ -156,10 +217,11 @@ export default function ProjectModal({ project, open, onClose }: ProjectModalPro
                     Screenshots
                     <span className="text-sm text-zinc-500 font-normal ml-2">({project.gallery.length})</span>
                   </h3>
+                  <span className="text-xs text-zinc-500 hidden sm:block">Tap to enlarge · ← → to navigate</span>
+                  <span className="text-xs text-zinc-500 sm:hidden">Tap to enlarge · swipe to navigate</span>
                 </div>
 
-                {/* Scrollable gallery grid — shows max 9 initially with "view all" in lightbox */}
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 max-h-[500px] overflow-y-auto pr-1 custom-scrollbar">
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                   {project.gallery.map((img, i) => (
                     <div
                       key={i}
@@ -212,38 +274,47 @@ export default function ProjectModal({ project, open, onClose }: ProjectModalPro
         </DialogContent>
       </Dialog>
 
-      {/* Lightbox Modal — full-screen image viewer */}
+      {/* Lightbox Modal — full-screen image viewer with swipe + keyboard nav */}
       <AnimatePresence>
         {lightboxIndex !== null && (
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[100] bg-black/95 flex items-center justify-center"
+            className="fixed inset-0 z-[100] bg-black/95 flex items-center justify-center touch-none"
             onClick={closeLightbox}
+            onTouchStart={handleTouchStart}
+            onTouchMove={handleTouchMove}
+            onTouchEnd={handleTouchEnd}
           >
             {/* Close button */}
             <button
               onClick={closeLightbox}
-              className="absolute top-4 right-4 p-2 bg-white/10 backdrop-blur-sm rounded-lg text-white hover:bg-white/20 transition-colors z-10"
+              aria-label="Close"
+              className="absolute top-4 right-4 p-2.5 bg-white/10 backdrop-blur-sm rounded-full text-white hover:bg-white/20 transition-colors z-20"
             >
               <X className="h-6 w-6" />
             </button>
 
             {/* Counter */}
-            <div className="absolute top-4 left-4 text-white/60 text-sm font-medium z-10">
+            <div className="absolute top-4 left-4 text-white/70 text-sm font-medium z-20 bg-black/40 px-3 py-1.5 rounded-full">
               {lightboxIndex + 1} / {allImages.length}
             </div>
 
-            {/* Previous button */}
-            {lightboxIndex > 0 && (
-              <button
-                onClick={(e) => { e.stopPropagation(); goPrev(); }}
-                className="absolute left-4 top-1/2 -translate-y-1/2 p-3 bg-white/10 backdrop-blur-sm rounded-full text-white hover:bg-white/20 transition-colors z-10"
-              >
-                <ChevronLeft className="h-6 w-6" />
-              </button>
-            )}
+            {/* Previous button — always rendered (disabled at first) so the
+                tap target stays stable on mobile. Positioned with margin from
+                the edge so it's reachable and doesn't conflict with OS edge
+                gestures. */}
+            <button
+              onClick={(e) => { e.stopPropagation(); goPrev(); }}
+              disabled={lightboxIndex === 0}
+              aria-label="Previous image"
+              className={`absolute left-2 sm:left-4 top-1/2 -translate-y-1/2 p-3 sm:p-4 bg-white/10 backdrop-blur-sm rounded-full text-white hover:bg-white/20 transition-all z-20 ${
+                lightboxIndex === 0 ? "opacity-30 cursor-not-allowed" : "hover:scale-110"
+              }`}
+            >
+              <ChevronLeft className="h-6 w-6" />
+            </button>
 
             {/* Image */}
             <motion.div
@@ -252,30 +323,39 @@ export default function ProjectModal({ project, open, onClose }: ProjectModalPro
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.95 }}
               transition={{ duration: 0.2 }}
-              className="max-w-[90vw] max-h-[85vh] flex items-center justify-center"
+              className="max-w-[88vw] max-h-[80vh] flex items-center justify-center"
               onClick={(e) => e.stopPropagation()}
             >
               <img
                 src={allImages[lightboxIndex]}
                 alt={`Screenshot ${lightboxIndex + 1}`}
-                className="max-w-full max-h-[85vh] object-contain rounded-lg"
+                className="max-w-full max-h-[80vh] object-contain rounded-lg"
               />
             </motion.div>
 
             {/* Next button */}
-            {lightboxIndex < allImages.length - 1 && (
-              <button
-                onClick={(e) => { e.stopPropagation(); goNext(); }}
-                className="absolute right-4 top-1/2 -translate-y-1/2 p-3 bg-white/10 backdrop-blur-sm rounded-full text-white hover:bg-white/20 transition-colors z-10"
-              >
-                <ChevronRight className="h-6 w-6" />
-              </button>
+            <button
+              onClick={(e) => { e.stopPropagation(); goNext(); }}
+              disabled={lightboxIndex === allImages.length - 1}
+              aria-label="Next image"
+              className={`absolute right-2 sm:right-4 top-1/2 -translate-y-1/2 p-3 sm:p-4 bg-white/10 backdrop-blur-sm rounded-full text-white hover:bg-white/20 transition-all z-20 ${
+                lightboxIndex === allImages.length - 1 ? "opacity-30 cursor-not-allowed" : "hover:scale-110"
+              }`}
+            >
+              <ChevronRight className="h-6 w-6" />
+            </button>
+
+            {/* Navigation hint */}
+            {hasMultiple && (
+              <div className="absolute bottom-20 left-1/2 -translate-x-1/2 text-white/40 text-xs z-20 pointer-events-none sm:hidden">
+                ← Swipe to navigate →
+              </div>
             )}
 
-            {/* Thumbnail strip at bottom for quick navigation (30+ images) */}
+            {/* Thumbnail strip at bottom for quick navigation (5+ images) */}
             {allImages.length > 5 && (
               <div
-                className="absolute bottom-4 left-1/2 -translate-x-1/2 flex gap-1.5 max-w-[90vw] overflow-x-auto px-2 py-1.5 bg-black/50 backdrop-blur-sm rounded-xl custom-scrollbar"
+                className="absolute bottom-4 left-1/2 -translate-x-1/2 flex gap-1.5 max-w-[90vw] overflow-x-auto px-2 py-1.5 bg-black/50 backdrop-blur-sm rounded-xl custom-scrollbar z-20"
                 onClick={(e) => e.stopPropagation()}
               >
                 {allImages.map((img, i) => (

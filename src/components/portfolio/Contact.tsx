@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { motion } from "framer-motion";
 import SectionHeading from "./SectionHeading";
 import { Button } from "@/components/ui/button";
@@ -60,12 +60,35 @@ export default function Contact({ contact, socialLinks, sectionTitle }: ContactP
   const [status, setStatus] = useState<"idle" | "success" | "error">("idle");
   const [errors, setErrors] = useState<Record<string, string>>({});
 
+  // Keep a ref of the latest form values so validate() never reads stale
+  // state from a closed-over render (fixes validation running on old data
+  // when the submit handler was attached before the last keystroke landed).
+  const formRef = useRef(form);
+
+  // Update a single form field and clear its validation error (and any stale
+  // submit status) so error messages disappear as soon as the user fixes them.
+  const updateField = (field: keyof typeof form, value: string) => {
+    // Update the ref synchronously so validate() always sees the latest value,
+    // even if the submit fires in the same tick as this keystroke.
+    formRef.current = { ...formRef.current, [field]: value };
+    setForm((prev) => ({ ...prev, [field]: value }));
+    setErrors((prev) => {
+      if (!prev[field]) return prev;
+      const next = { ...prev };
+      delete next[field];
+      return next;
+    });
+    // If a previous submit failed, clear the error banner once the user edits
+    setStatus((prev) => (prev === "error" ? "idle" : prev));
+  };
+
   const validate = () => {
+    const f = formRef.current;
     const errs: Record<string, string> = {};
-    if (!form.name.trim()) errs.name = "Name is required";
-    if (!form.email.trim()) errs.email = "Email is required";
-    else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) errs.email = "Invalid email";
-    if (!form.message.trim()) errs.message = "Message is required";
+    if (!f.name.trim()) errs.name = "Name is required";
+    if (!f.email.trim()) errs.email = "Email is required";
+    else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(f.email)) errs.email = "Invalid email";
+    if (!f.message.trim()) errs.message = "Message is required";
     setErrors(errs);
     return Object.keys(errs).length === 0;
   };
@@ -214,7 +237,8 @@ export default function Contact({ contact, socialLinks, sectionTitle }: ContactP
                   <Input
                     placeholder="Your Name *"
                     value={form.name}
-                    onChange={(e) => setForm({ ...form, name: e.target.value })}
+                    onChange={(e) => updateField("name", e.target.value)}
+                    aria-invalid={!!errors.name}
                     className="bg-zinc-900/50 border-zinc-800 text-white placeholder:text-zinc-600 h-12 rounded-xl focus:border-emerald-500/50"
                   />
                   {errors.name && <p className="text-red-400 text-xs mt-1">{errors.name}</p>}
@@ -224,7 +248,8 @@ export default function Contact({ contact, socialLinks, sectionTitle }: ContactP
                     type="email"
                     placeholder="Your Email *"
                     value={form.email}
-                    onChange={(e) => setForm({ ...form, email: e.target.value })}
+                    onChange={(e) => updateField("email", e.target.value)}
+                    aria-invalid={!!errors.email}
                     className="bg-zinc-900/50 border-zinc-800 text-white placeholder:text-zinc-600 h-12 rounded-xl focus:border-emerald-500/50"
                   />
                   {errors.email && <p className="text-red-400 text-xs mt-1">{errors.email}</p>}
@@ -233,7 +258,7 @@ export default function Contact({ contact, socialLinks, sectionTitle }: ContactP
 
               <div className="grid sm:grid-cols-2 gap-5">
                 {projectTypes.length > 0 ? (
-                  <Select value={form.projectType} onValueChange={(v) => setForm({ ...form, projectType: v })}>
+                  <Select value={form.projectType} onValueChange={(v) => updateField("projectType", v)}>
                     <SelectTrigger className="bg-zinc-900/50 border-zinc-800 text-white h-12 rounded-xl">
                       <SelectValue placeholder="Project Type" />
                     </SelectTrigger>
@@ -247,12 +272,12 @@ export default function Contact({ contact, socialLinks, sectionTitle }: ContactP
                   <Input
                     placeholder="Project Type"
                     value={form.projectType}
-                    onChange={(e) => setForm({ ...form, projectType: e.target.value })}
+                    onChange={(e) => updateField("projectType", e.target.value)}
                     className="bg-zinc-900/50 border-zinc-800 text-white placeholder:text-zinc-600 h-12 rounded-xl focus:border-emerald-500/50"
                   />
                 )}
                 {budgetRanges.length > 0 ? (
-                  <Select value={form.budget} onValueChange={(v) => setForm({ ...form, budget: v })}>
+                  <Select value={form.budget} onValueChange={(v) => updateField("budget", v)}>
                     <SelectTrigger className="bg-zinc-900/50 border-zinc-800 text-white h-12 rounded-xl">
                       <SelectValue placeholder="Budget Range" />
                     </SelectTrigger>
@@ -266,7 +291,7 @@ export default function Contact({ contact, socialLinks, sectionTitle }: ContactP
                   <Input
                     placeholder="Budget Range"
                     value={form.budget}
-                    onChange={(e) => setForm({ ...form, budget: e.target.value })}
+                    onChange={(e) => updateField("budget", e.target.value)}
                     className="bg-zinc-900/50 border-zinc-800 text-white placeholder:text-zinc-600 h-12 rounded-xl focus:border-emerald-500/50"
                   />
                 )}
@@ -276,7 +301,8 @@ export default function Contact({ contact, socialLinks, sectionTitle }: ContactP
                 <Textarea
                   placeholder="Your Message *"
                   value={form.message}
-                  onChange={(e) => setForm({ ...form, message: e.target.value })}
+                  onChange={(e) => updateField("message", e.target.value)}
+                  aria-invalid={!!errors.message}
                   rows={5}
                   className="bg-zinc-900/50 border-zinc-800 text-white placeholder:text-zinc-600 rounded-xl focus:border-emerald-500/50 resize-none"
                 />

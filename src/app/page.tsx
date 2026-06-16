@@ -78,7 +78,7 @@ export default function PortfolioPage() {
   const visibility = settings.sectionVisibility || {};
 
   return (
-    <div className="min-h-screen flex flex-col bg-zinc-950">
+    <div className="min-h-screen flex flex-col bg-zinc-950 overflow-x-hidden">
       <Navbar
         links={settings.navbar?.links || []}
         ownerName={settings.owner?.name || ""}
